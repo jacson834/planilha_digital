@@ -104,8 +104,8 @@ function convertDrive(url, type) {
                 // Usa o endpoint de thumbnail para evitar bloqueio de OpaqueResponse/CORS em imagens do Drive
                 return `https://drive.google.com/thumbnail?id=${id[1]}&sz=w1920-h1080`;
             }
-            // Para vídeos, mantém o padrão
-            return `https://drive.google.com/uc?export=download&id=${id[1]}`;
+            // Para vídeos, adicionar &confirm=t tenta pular a tela de verificação de vírus do Google
+            return `https://drive.google.com/uc?export=download&confirm=t&id=${id[1]}`;
         }
     }
     return url;
@@ -250,7 +250,17 @@ function show(item) {
             el.muted = !soundEnabled;
             el.onended = next;
 
+            // 🛡️ Proteção contra tela preta: se o Google Drive bloquear, pula em 3s
+            el.onerror = () => {
+                console.warn("⚠️ Falha ao carregar vídeo (bloqueado pelo Drive). Pulando...");
+                if (timerId) clearTimeout(timerId);
+                timerId = setTimeout(next, 3000);
+            };
+
             player.appendChild(el);
+
+            // 🛡️ Fallback de segurança: avança usando o tempo da planilha caso o vídeo trave
+            timerId = setTimeout(next, item.duration + 3000);
         }
     }
 }
