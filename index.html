@@ -332,17 +332,8 @@ function next() {
     show(playlist[current]);
 }
 
-// 🔲 Fullscreen automático
-function fullscreen() {
-    const el = document.documentElement;
-    // Como tiramos o clique obrigatório, navegadores podem bloquear o fullscreen automático.
-    // Usamos um catch para não exibir erro no console se for bloqueado. Na TV, basta pressionar F11.
-    if (el.requestFullscreen) el.requestFullscreen().catch(err => console.warn("Fullscreen automático requer clique. Pressione F11 na TV."));
-}
-
-// 🚀 Inicialização
+//  Inicialização
 async function startApp() {
-    fullscreen();
     document.getElementById("player").innerHTML = "<h1 style='color:white'>Carregando...</h1>";
 
     await loadData();
