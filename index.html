@@ -190,16 +190,24 @@ function processData(data) {
 
     playlist = data
         .filter(item => {
-            // Garante que a coluna active existe na linha e valida múltiplas formas de "verdadeiro"
-            if (!item.active) return false;
+            // Se a coluna 'active' estiver vazia ou não existir, assume que a mídia está ativa por padrão.
+            if (item.active === undefined || item.active === null || item.active === "") return true;
+            
             const val = String(item.active).trim().toUpperCase();
-            return val === "TRUE" || val === "VERDADEIRO" || val === "SIM" || val === "1";
+            
+            // Só bloqueia a exibição se o usuário tiver marcado explicitamente como inativo
+            if (val === "FALSE" || val === "FALSO" || val === "NÃO" || val === "NAO" || val === "0") {
+                return false;
+            }
+            
+            return true; // Qualquer outro valor (TRUE, SIM, 1, etc) será considerado ativo
         })
         .map(item => ({
             type: item.type ? String(item.type).trim().toLowerCase() : "image",
             url: item.url ? String(item.url).trim() : "",
             duration: parseTime(item.duration)
-        }));
+        }))
+        .filter(item => item.url !== ""); // Segurança extra: só adiciona na playlist se tiver uma URL preenchida
 
     console.log("▶️ Playlist filtrada para tocar:", playlist);
 }
