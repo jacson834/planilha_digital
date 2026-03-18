@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+<meta charset="UTF-8">
+<title>TV Corporativa</title>
+
+<style>
+body {
+    margin: 0;
+    background: black;
+    height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    overflow: hidden;
+}
+
+#player {
+    width: 100%;
+    height: 100%;
+}
+
+img, video, iframe {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    background: black;
+}
+
+#controls {
+    position: fixed;
+    bottom: 10px;
+    right: 10px;
+    z-index: 999;
+}
+
+button {
+    padding: 10px;
+    font-size: 14px;
+    cursor: pointer;
+}
+
+#start-screen {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: black;
+    z-index: 1000;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+</style>
+</head>
+
+<body>
+
+<div id="start-screen">
+    <button onclick="startApp()" style="font-size: 24px; padding: 20px;">▶️ Iniciar TV Corporativa</button>
+</div>
+
+<div id="player"></div>
+
+<div id="controls">
+    <button onclick="toggleSound()">🔇 Som OFF</button>
+</div>
+
+<script>
+
+const API_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTS78cXaRuXfd50OX1_xeMtJ7tWUtlU-NriotSAPHxhJvSAc4CzR4mS1QWn1ih1yOHt0Gj2aaRsyK9u/pub?gid=0&single=true&output=csv";
+
+let playlist = [];
+let current = 0;
+let soundEnabled = false;
+let timerId = null;
+
+// 🔄 Atualiza a cada 10 minutos
+setInterval(loadData, 10 * 60 * 1000);
+
+// 🔊 Controle de som
+function toggleSound() {
+    soundEnabled = !soundEnabled;
+    document.querySelector("button").innerText = soundEnabled ? "🔊 Som ON" : "🔇 Som OFF";
+}
+
+// ⏱️ Converter tempo
+function parseTime(time) {
+    if (!time) return 10000;
+
+    const parts = time.split(":");
+    return (parseInt(parts[0]) * 3600 +
+            parseInt(parts[1]) * 60 +
+            parseInt(parts[2])) * 1000;
+}
+
+// 🔗 Converter Google Drive
+function convertDrive(url) {
+    if (url.includes("drive.google.com")) {
+        const id = url.match(/\/d\/(.*?)\//) || url.match(/id=(.*?)&/) || url.match(/id=([^&]*)/);
+        if (id && id[1]) {
+            return `https://drive.google.com/uc?export=download&id=${id[1]}`;
+        }
+    }
+    return url;
+}
+
+// ▶️ Detectar YouTube
+function isYoutube(url) {
+    return url.includes("youtube") || url.includes("youtu.be");
+}
+
+function youtubeEmbed(url) {
+    let id;
+
+    if (url.includes("v=")) {
+        id = url.split("v=")[1].split("&")[0];
+    } else {
+        id = url.split("/").pop().split("?")[0];
+    }
+
+    return `https://www.youtube.com/embed/${id}?autoplay=1&mute=${soundEnabled ? 0 : 1}&controls=0&showinfo=0&rel=0&loop=1&playlist=${id}`;
+}
+
+// 📄 Função para converter texto CSV em Array de Objetos
+function parseCSV(csvText) {
+    const lines = csvText.trim().split(/\r?\n/);
+    const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
+    const result = [];
+
+    for (let i = 1; i < lines.length; i++) {
+        // Divide por vírgulas, ignorando vírgulas dentro de aspas duplas (caso a URL tenha)
+        const currentLine = lines[i].split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/);
+        if (currentLine.length === 1 && currentLine[0] === "") continue;
+
+        const obj = {};
+        headers.forEach((header, j) => {
+            let value = currentLine[j] ? currentLine[j].trim() : "";
+            // Remove aspas se o Excel/Sheets tiver colocado
+            if (value.startsWith('"') && value.endsWith('"')) {
+                value = value.substring(1, value.length - 1);
+            }
+            obj[header] = value;
+        });
+        result.push(obj);
+    }
+    return result;
+}
+
+// � Carregar dados (com fallback anti-CORS)
+async function loadData() {
+    try {
+        const res = await fetch(API_URL);
+
+        if (!res.ok) throw new Error("Erro API");
+
+        const text = await res.text();
+        const data = parseCSV(text);
+        processData(data);
+
+    } catch (err) {
+        console.warn("⚠️ Falha direta, usando proxy...", err);
+
+        try {
+            // Usando /get em vez de /raw para garantir headers CORS mesmo em arquivos locais (file:///)
+            const proxy = "https://api.allorigins.win/get?url=" + encodeURIComponent(API_URL);
+            const res = await fetch(proxy);
+            const json = await res.json();
+            
+            const data = parseCSV(json.contents);
+
+            processData(data);
+
+        } catch (err2) {
+            console.error("❌ Erro total ao carregar dados", err2);
+        }
+    }
+}
+
+// 🔄 Processar dados
+function processData(data) {
+    playlist = data
+        // Adicionado "TRUE" maiúsculo também para previnir formatações do Google Sheets
+        .filter(item => item.active === true || item.active === "true" || item.active === "TRUE")
+        .map(item => ({
+            type: item.type,
+            url: item.url,
+            duration: parseTime(item.duration)
+        }));
+
+    console.log("Playlist carregada:", playlist);
+}
+
+// 🎬 Exibir item
+function show(item) {
+    if (timerId) clearTimeout(timerId);
+
+    const player = document.getElementById("player");
+    player.innerHTML = "";
+
+    let el;
+
+    if (item.type === "image") {
+        el = document.createElement("img");
+        el.src = convertDrive(item.url);
+        player.appendChild(el);
+
+        timerId = setTimeout(next, item.duration);
+
+    } else if (item.type === "video") {
+
+        if (isYoutube(item.url)) {
+            el = document.createElement("iframe");
+            el.src = youtubeEmbed(item.url);
+            el.allow = "autoplay; encrypted-media";
+            player.appendChild(el);
+
+            timerId = setTimeout(next, item.duration);
+
+        } else {
+            el = document.createElement("video");
+            el.src = convertDrive(item.url);
+            el.autoplay = true;
+            el.muted = !soundEnabled;
+            el.onended = next;
+
+            player.appendChild(el);
+        }
+    }
+}
+
+// ⏭️ Próximo item
+function next() {
+    if (playlist.length === 0) {
+        document.getElementById("player").innerHTML = "<h1 style='color:white'>Sem conteúdo</h1>";
+        timerId = setTimeout(next, 10000);
+        return;
+    }
+
+    current = (current + 1) % playlist.length;
+    show(playlist[current]);
+}
+
+// 🔲 Fullscreen automático
+function fullscreen() {
+    const el = document.documentElement;
+    if (el.requestFullscreen) el.requestFullscreen();
+}
+
+// 🚀 Inicialização
+async function startApp() {
+    document.getElementById("start-screen").style.display = "none";
+    fullscreen();
+    document.getElementById("player").innerHTML = "<h1 style='color:white'>Carregando...</h1>";
+
+    await loadData();
+
+    if (playlist.length > 0) {
+        show(playlist[0]);
+    } else {
+        document.getElementById("player").innerHTML = "<h1 style='color:white'>Sem conteúdo</h1>";
+        timerId = setTimeout(next, 10000);
+    }
+}
+
+</script>
+
+</body>
+</html>
