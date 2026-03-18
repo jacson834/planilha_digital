@@ -180,16 +180,23 @@ async function loadData() {
 
 // 🔄 Processar dados
 function processData(data) {
+    // Adicionado log dos dados brutos para ajudar a debugar caso alguma coluna mude de nome
+    console.log("📊 Dados brutos extraídos da planilha:", data);
+
     playlist = data
-        // Adicionado "TRUE" maiúsculo também para previnir formatações do Google Sheets
-        .filter(item => item.active === true || item.active === "true" || item.active === "TRUE")
+        .filter(item => {
+            // Garante que a coluna active existe na linha e valida múltiplas formas de "verdadeiro"
+            if (!item.active) return false;
+            const val = String(item.active).trim().toUpperCase();
+            return val === "TRUE" || val === "VERDADEIRO" || val === "SIM" || val === "1";
+        })
         .map(item => ({
-            type: item.type,
-            url: item.url,
+            type: item.type ? String(item.type).trim().toLowerCase() : "image",
+            url: item.url ? String(item.url).trim() : "",
             duration: parseTime(item.duration)
         }));
 
-    console.log("Playlist carregada:", playlist);
+    console.log("▶️ Playlist filtrada para tocar:", playlist);
 }
 
 // 🎬 Exibir item
