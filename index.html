@@ -96,10 +96,15 @@ function parseTime(time) {
 }
 
 // 🔗 Converter Google Drive
-function convertDrive(url) {
+function convertDrive(url, type) {
     if (url.includes("drive.google.com")) {
         const id = url.match(/\/d\/(.*?)\//) || url.match(/id=(.*?)&/) || url.match(/id=([^&]*)/);
         if (id && id[1]) {
+            if (type === "image") {
+                // Usa o endpoint de thumbnail para evitar bloqueio de OpaqueResponse/CORS em imagens do Drive
+                return `https://drive.google.com/thumbnail?id=${id[1]}&sz=w1920-h1080`;
+            }
+            // Para vídeos, mantém o padrão
             return `https://drive.google.com/uc?export=download&id=${id[1]}`;
         }
     }
@@ -223,7 +228,7 @@ function show(item) {
 
     if (item.type === "image") {
         el = document.createElement("img");
-        el.src = convertDrive(item.url);
+        el.src = convertDrive(item.url, item.type);
         player.appendChild(el);
 
         timerId = setTimeout(next, item.duration);
@@ -240,7 +245,7 @@ function show(item) {
 
         } else {
             el = document.createElement("video");
-            el.src = convertDrive(item.url);
+            el.src = convertDrive(item.url, item.type);
             el.autoplay = true;
             el.muted = !soundEnabled;
             el.onended = next;
