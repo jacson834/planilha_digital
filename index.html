@@ -95,7 +95,48 @@ function parseTime(time) {
             parseInt(parts[2])) * 1000;
 }
 
-// 🔗 Converter Google Drive
+// 📅 Validar período de exibição (startDate e endDate)
+function isDateValid(startStr, endStr) {
+    const now = Date.now();
+
+    // Subfunção para transformar o texto da planilha em uma Data real no código
+    function parseDate(str, isEnd) {
+        if (!str) return null; // Se estiver em branco, ignora o limite
+        const parts = String(str).trim().split(" ");
+        
+        // Formato BR (DD/MM/YYYY ou DD/MM/YYYY HH:MM)
+        if (parts[0].includes("/")) {
+            const d = parts[0].split("/");
+            if (d.length === 3) {
+                const day = parseInt(d[0], 10);
+                const month = parseInt(d[1], 10) - 1; // Mês no JS começa no 0
+                const year = d[2].length === 2 ? 2000 + parseInt(d[2], 10) : parseInt(d[2], 10);
+                
+                let h = 0, m = 0, s = 0;
+                if (parts[1]) {
+                    const t = parts[1].split(":");
+                    h = parseInt(t[0], 10) || 0; m = parseInt(t[1], 10) || 0; s = parseInt(t[2], 10) || 0;
+                } else if (isEnd) {
+                    h = 23; m = 59; s = 59; // Se for o dia final sem horário, estende até o último segundo
+                }
+                return new Date(year, month, day, h, m, s).getTime();
+            }
+        }
+        // Formato Padrão ISO (YYYY-MM-DD)
+        const fallback = new Date(str).getTime();
+        return isNaN(fallback) ? null : fallback;
+    }
+
+    const startDate = parseDate(startStr, false);
+    const endDate = parseDate(endStr, true);
+
+    if (startDate && now < startDate) return false; // Ainda não chegou a hora
+    if (endDate && now > endDate) return false;     // Já passou da validade
+
+    return true; // Dentro do período!
+}
+
+//  Converter Google Drive
 function convertDrive(url, type) {
     if (url.includes("drive.google.com")) {
         const id = url.match(/\/d\/(.*?)\//) || url.match(/id=(.*?)&/) || url.match(/id=([^&]*)/);
@@ -104,8 +145,8 @@ function convertDrive(url, type) {
                 // Usa o endpoint de thumbnail para evitar bloqueio de OpaqueResponse/CORS em imagens do Drive
                 return `https://drive.google.com/thumbnail?id=${id[1]}&sz=w1920-h1080`;
             }
-            // Para vídeos, adicionar &confirm=t tenta pular a tela de verificação de vírus do Google
-            return `https://drive.google.com/uc?export=download&confirm=t&id=${id[1]}`;
+            // Para vídeos, o Drive bloqueia stream direto. Retorna a página oficial de preview para uso no Iframe.
+            return `https://drive.google.com/file/d/${id[1]}/preview`;
         }
     }
     return url;
@@ -125,7 +166,8 @@ function youtubeEmbed(url) {
         id = url.split("/").pop().split("?")[0];
     }
 
-    return `https://www.youtube.com/embed/${id}?autoplay=1&mute=${soundEnabled ? 0 : 1}&controls=0&showinfo=0&rel=0&loop=1&playlist=${id}`;
+    // Parâmetros extras para deixar o player invisível e livre de poluição visual
+    return `https://www.youtube.com/embed/${id}?autoplay=1&mute=${soundEnabled ? 0 : 1}&controls=0&showinfo=0&rel=0&loop=1&playlist=${id}&modestbranding=1&iv_load_policy=3&disablekb=1`;
 }
 
 // 📄 Função para converter texto CSV em Array de Objetos
@@ -195,17 +237,21 @@ function processData(data) {
 
     playlist = data
         .filter(item => {
-            // Se a coluna 'active' estiver vazia ou não existir, assume que a mídia está ativa por padrão.
-            if (item.active === undefined || item.active === null || item.active === "") return true;
-            
-            const val = String(item.active).trim().toUpperCase();
-            
-            // Só bloqueia a exibição se o usuário tiver marcado explicitamente como inativo
-            if (val === "FALSE" || val === "FALSO" || val === "NÃO" || val === "NAO" || val === "0") {
-                return false;
+            // 1. Checa a coluna 'active'
+            if (item.active !== undefined && item.active !== null && item.active !== "") {
+                const val = String(item.active).trim().toUpperCase();
+                // Só bloqueia a exibição se o usuário tiver marcado explicitamente como inativo
+                if (val === "FALSE" || val === "FALSO" || val === "NÃO" || val === "NAO" || val === "0") {
+                    return false;
+                }
+            }
+
+            // 2. Checa o período (startDate e endDate)
+            if (!isDateValid(item.startdate, item.enddate)) {
+                return false; // Fora do período de exibição, exclui da playlist!
             }
             
-            return true; // Qualquer outro valor (TRUE, SIM, 1, etc) será considerado ativo
+            return true;
         })
         .map(item => ({
             type: item.type ? String(item.type).trim().toLowerCase() : "image",
@@ -238,6 +284,15 @@ function show(item) {
         if (isYoutube(item.url)) {
             el = document.createElement("iframe");
             el.src = youtubeEmbed(item.url);
+            el.allow = "autoplay; encrypted-media";
+            player.appendChild(el);
+
+            timerId = setTimeout(next, item.duration);
+
+        } else if (item.url.includes("drive.google.com")) {
+            // ⚠️ O Google bloqueia tag <video> do Drive. A única forma é via Iframe (player nativo)
+            el = document.createElement("iframe");
+            el.src = convertDrive(item.url, item.type);
             el.allow = "autoplay; encrypted-media";
             player.appendChild(el);
 
@@ -280,12 +335,13 @@ function next() {
 // 🔲 Fullscreen automático
 function fullscreen() {
     const el = document.documentElement;
-    if (el.requestFullscreen) el.requestFullscreen();
+    // Como tiramos o clique obrigatório, navegadores podem bloquear o fullscreen automático.
+    // Usamos um catch para não exibir erro no console se for bloqueado. Na TV, basta pressionar F11.
+    if (el.requestFullscreen) el.requestFullscreen().catch(err => console.warn("Fullscreen automático requer clique. Pressione F11 na TV."));
 }
 
 // 🚀 Inicialização
 async function startApp() {
-    document.getElementById("start-screen").style.display = "none";
     fullscreen();
     document.getElementById("player").innerHTML = "<h1 style='color:white'>Carregando...</h1>";
 
@@ -298,6 +354,9 @@ async function startApp() {
         timerId = setTimeout(next, 10000);
     }
 }
+
+// 🎬 Iniciar automaticamente ao abrir a página
+startApp();
 
 </script>
 
