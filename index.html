@@ -161,33 +161,30 @@ function parseCSV(csvText) {
 }
 
 // � Carregar dados (com fallback anti-CORS)
-async function loadData() {
-    try {
-        const res = await fetch(API_URL);
-
-        if (!res.ok) throw new Error("Erro API");
-
-        const text = await res.text();
-        const data = parseCSV(text);
-        processData(data);
-
-    } catch (err) {
-        console.warn("⚠️ Falha direta, usando proxy...", err);
-
-        try {
-            // Usando /get em vez de /raw para garantir headers CORS mesmo em arquivos locais (file:///)
-            const proxy = "https://api.allorigins.win/get?url=" + encodeURIComponent(API_URL);
-            const res = await fetch(proxy);
-            const json = await res.json();
-            
-            const data = parseCSV(json.contents);
-
+function loadData() {
+    return fetch(API_URL)
+        .then(res => {
+            if (!res.ok) throw new Error("Erro API");
+            return res.text();
+        })
+        .then(text => {
+            const data = parseCSV(text);
             processData(data);
-
-        } catch (err2) {
-            console.error("❌ Erro total ao carregar dados", err2);
-        }
-    }
+        })
+        .catch(err => {
+            console.warn("⚠️ Falha direta, usando proxy...", err);
+            const proxy = "https://api.allorigins.win/get?url=" + encodeURIComponent(API_URL);
+            
+            return fetch(proxy)
+                .then(res => res.json())
+                .then(json => {
+                    const data = parseCSV(json.contents);
+                    processData(data);
+                })
+                .catch(err2 => {
+                    console.error("❌ Erro total ao carregar dados", err2);
+                });
+        });
 }
 
 // 🔄 Processar dados
@@ -293,17 +290,17 @@ function next() {
 }
 
 //  Inicialização
-async function startApp() {
+function startApp() {
     document.getElementById("player").innerHTML = "<h1 style='color:white'>Carregando...</h1>";
 
-    await loadData();
-
-    if (playlist.length > 0) {
-        show(playlist[0]);
-    } else {
-        document.getElementById("player").innerHTML = "<h1 style='color:white'>Sem conteúdo</h1>";
-        timerId = setTimeout(next, 10000);
-    }
+    loadData().then(() => {
+        if (playlist.length > 0) {
+            show(playlist[0]);
+        } else {
+            document.getElementById("player").innerHTML = "<h1 style='color:white'>Sem conteúdo</h1>";
+            timerId = setTimeout(next, 10000);
+        }
+    });
 }
 
 // 🎬 Iniciar automaticamente ao abrir a página
